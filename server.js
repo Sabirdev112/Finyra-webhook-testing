@@ -1,4 +1,4 @@
-import http from "node:http";
+﻿import http from "node:http";
 import crypto from "node:crypto";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -16,14 +16,13 @@ function loadEnvFile() {
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    const value = trimmed.slice(eq + 1).trim().replace(/^['"]|['"]$/g, "");
     if (!process.env[key]) process.env[key] = value;
   }
 }
 
 loadEnvFile();
 
-const PORT = Number(process.env.PORT || 3456);
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 const VERIFY_SIGNATURE = (process.env.VERIFY_SIGNATURE ?? "true") !== "false";
 const WEBHOOK_PATH = "/webhooks/finyra";
@@ -81,8 +80,11 @@ function sendJson(res, statusCode, body) {
   res.end(payload);
 }
 
-const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health") {
+async function handler(req, res) {
+  const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  const pathname = url.pathname;
+
+  if (req.method === "GET" && pathname === "/health") {
     return sendJson(res, 200, {
       ok: true,
       service: "finyra-webhook-test",
@@ -92,7 +94,7 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  if (req.method === "POST" && req.url === WEBHOOK_PATH) {
+  if (req.method === "POST" && pathname === WEBHOOK_PATH) {
     const rawBody = await readRawBody(req);
     const webhookId = req.headers["finyra-webhook-id"];
     const timestamp = req.headers["finyra-webhook-timestamp"];
@@ -143,21 +145,44 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  sendJson(res, 404, {
+  return sendJson(res, 404, {
     ok: false,
     error: "Not found",
     hint: `POST ${WEBHOOK_PATH} or GET /health`,
   });
-});
+}
 
-server.listen(PORT, () => {
-  console.log("Finyra webhook test server running");
-  console.log(`  Health:  http://localhost:${PORT}/health`);
-  console.log(`  Webhook: http://localhost:${PORT}${WEBHOOK_PATH}`);
-  console.log(`  Verify signatures: ${VERIFY_SIGNATURE}`);
-  console.log(`  Secret configured: ${Boolean(WEBHOOK_SECRET)}`);
-  if (!WEBHOOK_SECRET) {
-    console.log("\n  Copy .env.example to .env and set WEBHOOK_SECRET=whsec_...");
-  }
-  console.log("\nRegister the webhook URL in Partner dashboard -> Webhooks, then Send test.");
-});
+function startServer() {
+  const PORT = Number(process.env.PORT || 5156);
+  const server = http.createServer(async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      console.error(error);
+      sendJson(res, 500, {
+        ok: false,
+        error: "Internal server error",
+      });
+    }
+  });
+
+  server.listen(PORT, () => {
+    console.log("Finyra webhook test server running");
+    console.log(`  Health:  http://localhost:${PORT}/health`);
+    console.log(`  Webhook: http://localhost:${PORT}${WEBHOOK_PATH}`);
+    console.log(`  Verify signatures: ${VERIFY_SIGNATURE}`);
+    console.log(`  Secret configured: ${Boolean(WEBHOOK_SECRET)}`);
+    if (!WEBHOOK_SECRET) {
+      console.log("\n  Copy .env.example to .env and set WEBHOOK_SECRET=whsec_...");
+    }
+    console.log("\nRegister the webhook URL in Partner dashboard -> Webhooks, then Send test.");
+  });
+}
+
+const isMainModule = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  startServer();
+}
+
+export { handler, startServer };
+export default handler;

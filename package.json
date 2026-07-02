@@ -1,0 +1,14 @@
+{
+  "name": "finyra-webhook-test",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local receiver for Finyra B2B outgoing webhooks",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
